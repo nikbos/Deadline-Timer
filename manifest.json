@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "id": "deadline-timer",
+  "name": "Deadline Timer",
+  "version": "0.1.0",
+  "author": "",
+  "description": "Shows the active schedule task and its remaining time",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Deadline Timer",
+    "description": "Active task countdown from a Markdown schedule",
+    "category": "Productivity",
+    "allowMultiple": false,
+    "settingsForm": "deadlineTimerSettings",
+    "schema": [
+      {
+        "key": "schedulePath",
+        "type": "string",
+        "label": "Schedule file",
+        "defaultValue": "~/.config/omarchy/schedule.md"
+      },
+      {
+        "key": "warningMinutes",
+        "type": "number",
+        "label": "Warning minutes",
+        "defaultValue": 5
+      },
+      {
+        "key": "notifications",
+        "type": "boolean",
+        "label": "Deadline notifications",
+        "defaultValue": true
+      },
+      {
+        "key": "sound",
+        "type": "boolean",
+        "label": "Deadline sound",
+        "defaultValue": true
+      },
+      {
+        "key": "middayCheckpoint",
+        "type": "boolean",
+        "label": "Midday checkpoint",
+        "defaultValue": true
+      },
+      {
+        "key": "middayCheckpointTime",
+        "type": "string",
+        "label": "Checkpoint time",
+        "defaultValue": "12:00"
+      }
+    ]
+  }
+}

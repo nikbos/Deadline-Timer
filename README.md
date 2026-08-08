@@ -45,7 +45,25 @@ The schedule is read-only and reloads when the file changes.
 - `j` / `k` or up/down arrows move through the timeline.
 - `t` returns to today.
 - `r` reloads the Markdown file.
+- `n` opens the new-task form and scrolls to it.
 - `Escape` closes the popup.
+
+The widget also includes a daily midday checkpoint. By default, it occurs at
+12:00 and reminds you to finish a rough outline or initial draft, review
+progress, and plan the afternoon refinement phase. The checkpoint appears in
+the popup and sends one desktop notification per day. Enable or disable it and
+change its time through the widget settings.
+
+### Creating Tasks
+
+With the widget open, press `n` or click **+ New task**. Enter a task name,
+start time, and end time. Press Enter in the task name field to move to the
+start time, Enter in the start time field to move to the end time, and Enter in
+the end time field to save the task. Escape cancels the form.
+
+New tasks are written to the selected day in the configured Markdown schedule.
+Displayed times and time-entry placeholders follow the Omarchy clock format,
+including 12-hour and 24-hour formats.
 
 The bar shows only the active task, for example:
 
