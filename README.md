@@ -1,6 +1,6 @@
 # Deadline Timer
 
-An Omarchy 4 bar widget that applies Parkinson's Law to a Markdown schedule.
+An Omarchy 4 bar widget that applies Parkinson's Law and The Deadline Effect to a Markdown schedule.
 The status bar shows only the active task and its remaining time. The popup
 contains the full timeline for the current day.
 
