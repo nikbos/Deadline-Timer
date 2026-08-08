@@ -4,6 +4,9 @@ An Omarchy 4 bar widget that applies Parkinson's Law to a Markdown schedule.
 The status bar shows only the active task and its remaining time. The popup
 contains the full timeline for the current day.
 
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/4111683a-2499-4d8c-91f2-4d5b0c9aec9b" />
+
+
 ## Install
 
 ```bash
