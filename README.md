@@ -7,7 +7,7 @@ contains the full timeline for the current day.
 ## Install
 
 ```bash
-omarchy plugin add <repository-url> --enable
+omarchy plugin add https://github.com/nikbos/deadlineTimer --enable
 omarchy restart shell
 ```
 
