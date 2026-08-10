@@ -3,7 +3,8 @@
   "id": "deadline-timer",
   "name": "Deadline Timer",
   "version": "0.1.0",
-  "author": "",
+  "author": "Nik",
+  "license": "MIT",
   "description": "Shows the active schedule task and its remaining time",
   "kinds": ["bar-widget"],
   "entryPoints": {
@@ -14,7 +15,7 @@
     "description": "Active task countdown from a Markdown schedule",
     "category": "Productivity",
     "allowMultiple": false,
-    "settingsForm": "deadlineTimerSettings",
+    "defaultSection": "center",
     "schema": [
       {
         "key": "schedulePath",
@@ -24,8 +25,11 @@
       },
       {
         "key": "warningMinutes",
-        "type": "number",
+        "type": "integer",
         "label": "Warning minutes",
+        "min": 1,
+        "max": 60,
+        "step": 1,
         "defaultValue": 5
       },
       {
