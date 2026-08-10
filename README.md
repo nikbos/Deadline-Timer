@@ -26,7 +26,7 @@ omarchy restart shell
 
 ## Schedule
 
-The default schedule path is `~/.config/omarchy/schedule.md`. Configure another
+The default schedule path is `/home/nik/schedule.md`. Configure another
 path through the bar widget settings. The parser reads detailed sections in
 the following format:
 
@@ -39,7 +39,8 @@ the following format:
 | **8:00-8:30 AM** | Breakfast |
 ```
 
-The schedule is read-only and reloads when the file changes.
+The timeline reloads when the file changes. Top-priority checklist updates are
+written back to the configured Markdown file.
 
 ## Controls
 
@@ -51,22 +52,24 @@ The schedule is read-only and reloads when the file changes.
 - `n` opens the new-task form and scrolls to it.
 - `Escape` closes the popup.
 
-The widget also includes a daily midday checkpoint. By default, it occurs at
-12:00 and reminds you to finish a rough outline or initial draft, review
-progress, and plan the afternoon refinement phase. The checkpoint appears in
-the popup and sends one desktop notification per day. Enable or disable it and
-change its time through the widget settings.
+The popup includes a **Top Priorities** checklist for the selected day. Press
+`n` or click **+ New task** to add an untimed priority; click its checkbox when
+complete. Priorities are stored beneath each `### Day:` heading in the Markdown
+schedule. Every Sunday at 18:00, all top-priority checklists are cleared for the
+new week.
+
+Timed schedule items such as the midday checkpoint (`12:20-12:30`) and lunch
+(`12:30-13:30`) belong in the Markdown schedule and appear in the normal
+timeline.
 
 ### Creating Tasks
 
-With the widget open, press `n` or click **+ New task**. Enter a task name,
-start time, and end time. Press Enter in the task name field to move to the
-start time, Enter in the start time field to move to the end time, and Enter in
-the end time field to save the task. Escape cancels the form.
+With the widget open, press `n` or click **+ New task**. Enter a priority name
+and press Enter or click Save. Escape cancels the form.
 
-New tasks are written to the selected day in the configured Markdown schedule.
-Displayed times and time-entry placeholders follow the Omarchy clock format,
-including 12-hour and 24-hour formats.
+New priorities are written to the selected day in the configured Markdown
+schedule. Add timed schedule entries directly as Markdown table rows. Displayed
+times follow the Omarchy clock format, including 12-hour and 24-hour formats.
 
 The bar shows only the active task, for example:
 

@@ -20,7 +20,7 @@
         "key": "schedulePath",
         "type": "string",
         "label": "Schedule file",
-        "defaultValue": "~/.config/omarchy/schedule.md"
+        "defaultValue": "/home/nik/schedule.md"
       },
       {
         "key": "warningMinutes",
@@ -39,18 +39,6 @@
         "type": "boolean",
         "label": "Deadline sound",
         "defaultValue": true
-      },
-      {
-        "key": "middayCheckpoint",
-        "type": "boolean",
-        "label": "Midday checkpoint",
-        "defaultValue": true
-      },
-      {
-        "key": "middayCheckpointTime",
-        "type": "string",
-        "label": "Checkpoint time",
-        "defaultValue": "12:00"
       }
     ]
   }

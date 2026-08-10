@@ -13,28 +13,24 @@ Panel {
 
   property date now: new Date()
   property var schedule: []
+  property var topPriorities: []
   property var activeSlot: null
   property int selectedDay: now.getDay()
   property string lastAnnouncedId: ""
-  property string lastCheckpointDate: ""
+  property string lastPriorityCleanupDate: ""
   property bool scheduleLoaded: false
   property bool addingTask: false
   property string taskError: ""
 
   readonly property string home: Quickshell.env("HOME") || ""
-  readonly property string configuredPath: String(setting("schedulePath", "~/.config/omarchy/schedule.md"))
+  readonly property string configuredPath: root.scheduleSettingPath()
   readonly property string scheduleFilePath: configuredPath.indexOf("~/") === 0
     ? home + configuredPath.slice(1)
     : configuredPath
   property bool use24HourClock: Qt.locale().timeFormat(Locale.ShortFormat).indexOf("H") >= 0
-  readonly property string startTimePlaceholder: use24HourClock ? "Start (14:00)" : "Start (2:00 PM)"
-  readonly property string endTimePlaceholder: use24HourClock ? "End (15:00)" : "End (3:00 PM)"
   readonly property int warningMinutes: Math.max(1, Number(setting("warningMinutes", 5)) || 5)
   readonly property bool notificationsEnabled: setting("notifications", true) !== false
   readonly property bool soundEnabled: setting("sound", true) !== false
-  readonly property bool middayCheckpointEnabled: setting("middayCheckpoint", true) !== false
-  readonly property string middayCheckpointSetting: String(setting("middayCheckpointTime", "12:00"))
-  readonly property int middayCheckpointMinute: parseCheckpointTime(middayCheckpointSetting)
   readonly property var selectedSlots: ScheduleModel.slotsForDay(schedule, selectedDay)
   readonly property bool selectedIsToday: selectedDay === now.getDay()
   readonly property string statusText: activeSlot
@@ -52,31 +48,18 @@ Panel {
     root.tick()
   }
 
+  function scheduleSettingPath() {
+    var value = String(setting("schedulePath", "/home/nik/schedule.md"))
+    if (value === "~/.config/omarchy/schedule.md" || value === "/home/schedule.md")
+      return "/home/nik/schedule.md"
+    return value
+  }
+
   function loadSchedule(raw) {
     root.schedule = ScheduleModel.parseSchedule(raw)
+    root.topPriorities = ScheduleModel.topPriorities(raw, root.selectedDay)
     root.scheduleLoaded = true
     root.tick()
-  }
-
-  function parseCheckpointTime(value) {
-    var match = String(value || "").trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i)
-    if (!match) return 720
-    var hour = Number(match[1])
-    var minute = Number(match[2] || 0)
-    var suffix = String(match[3] || "").toUpperCase()
-    if (minute > 59) return 720
-    if (suffix === "AM") hour = hour === 12 ? 0 : hour
-    else if (suffix === "PM") hour = hour === 12 ? 12 : hour + 12
-    if (hour > 23) return 720
-    return hour * 60 + minute
-  }
-
-  function checkpointTimeLabel() {
-    return ScheduleModel.formatMinutes(root.middayCheckpointMinute, root.use24HourClock)
-  }
-
-  function checkpointDateKey(date) {
-    return date.getFullYear() + "-" + date.getMonth() + "-" + date.getDate()
   }
 
   function loadClockFormat(raw) {
@@ -100,40 +83,41 @@ Panel {
     var previousDay = root.now.getDay()
     root.now = new Date()
     root.activeSlot = ScheduleModel.currentSlot(root.schedule, root.now)
+    root.clearWeeklyPriorities()
     if (previousDay !== root.now.getDay()) {
       root.selectedDay = root.now.getDay()
+      root.topPriorities = ScheduleModel.topPriorities(scheduleFile.text(), root.selectedDay)
       root.lastAnnouncedId = ""
     }
     root.checkDeadline()
-    root.checkMiddayCheckpoint()
   }
 
-  function checkMiddayCheckpoint() {
-    if (!root.middayCheckpointEnabled || !root.notificationsEnabled) return
-    var dateKey = root.checkpointDateKey(root.now)
-    var minute = root.now.getHours() * 60 + root.now.getMinutes()
-    if (minute < root.middayCheckpointMinute || root.lastCheckpointDate === dateKey) return
+  function clearWeeklyPriorities() {
+    if (root.now.getDay() !== 0 || root.now.getHours() < 18) return
+    var dateKey = root.now.getFullYear() + "-" + root.now.getMonth() + "-" + root.now.getDate()
+    if (root.lastPriorityCleanupDate === dateKey) return
 
-    root.lastCheckpointDate = dateKey
-    if (!root.bar || !root.bar.run) return
-    var title = "Midday checkpoint"
-    var message = "Review your primary priority, capture progress, and plan the afternoon."
-    root.bar.run("notify-send -a deadline-timer " + Util.shellQuote(title)
-      + " " + Util.shellQuote(message))
-    if (root.soundEnabled) root.bar.run("canberra-gtk-play --id=message-new-instant")
-  }
+    var lines = scheduleFile.text().split(/\r?\n/)
+    var inDay = false
+    var updatedLines = []
+    for (var i = 0; i < lines.length; i++) {
+      if (/^###\s+[^:]+:/.test(lines[i])) inDay = true
+      else if (/^#{1,2}\s+/.test(lines[i])) inDay = false
+      if (inDay && /^\s*-\s+\[[ xX]\]\s+/.test(lines[i])) continue
+      updatedLines.push(lines[i])
+    }
 
-  function checkpointStatus() {
-    var minute = root.now.getHours() * 60 + root.now.getMinutes()
-    if (minute < root.middayCheckpointMinute)
-      return "Target " + root.checkpointTimeLabel() + " - finish a rough draft or outline"
-    if (minute < root.middayCheckpointMinute + 15) return "Checkpoint now - review progress"
-    return "Complete - refine, buffer, or reschedule the afternoon"
+    root.lastPriorityCleanupDate = dateKey
+    var updatedSchedule = updatedLines.join("\n")
+    if (updatedSchedule === scheduleFile.text()) return
+    scheduleFile.setText(updatedSchedule)
+    root.topPriorities = ScheduleModel.topPriorities(updatedSchedule, root.selectedDay)
   }
 
   function open() {
     root.tick()
     root.selectedDay = root.now.getDay()
+    root.topPriorities = ScheduleModel.topPriorities(scheduleFile.text(), root.selectedDay)
     root.controller.show()
     Qt.callLater(function() {
       if (root.opened) root.setCenterHoverRevealSuppressed(true)
@@ -162,11 +146,13 @@ Panel {
 
   function moveDay(delta) {
     root.selectedDay = (root.selectedDay + Number(delta) + 7) % 7
+    root.topPriorities = ScheduleModel.topPriorities(scheduleFile.text(), root.selectedDay)
   }
 
   function goToToday() {
     root.tick()
     root.selectedDay = root.now.getDay()
+    root.topPriorities = ScheduleModel.topPriorities(scheduleFile.text(), root.selectedDay)
   }
 
   function startAddTask() {
@@ -185,11 +171,7 @@ Panel {
     root.taskError = ""
     taskFormScrollTimer.stop()
     taskTitleField.text = ""
-    taskStartField.text = ""
-    taskEndField.text = ""
     taskTitleField.focus = false
-    taskStartField.focus = false
-    taskEndField.focus = false
     Qt.callLater(function() {
       if (root.opened) keyCatcher.forceActiveFocus()
     })
@@ -197,18 +179,14 @@ Panel {
 
   function saveNewTask() {
     var title = taskTitleField.text.replace(/[|\r\n]/g, " ").trim()
-    var start = taskStartField.text.replace(/[|\r\n]/g, " ").trim()
-    var end = taskEndField.text.replace(/[|\r\n]/g, " ").trim()
-    if (!title || !start || !end) {
-      root.taskError = "Enter a task, start time, and end time"
+    if (!title) {
+      root.taskError = "Enter a top priority"
       return
     }
 
-    var dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-    var heading = "### " + dayNames[root.selectedDay] + ":"
     var lines = scheduleFile.text().split(/\r?\n/)
+    var dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
     var dayLine = -1
-    var nextHeading = lines.length
     for (var i = 0; i < lines.length; i++) {
       if (lines[i].match(new RegExp("^###\\s+" + dayNames[root.selectedDay] + "\\s*:", "i"))) {
         dayLine = i
@@ -216,31 +194,55 @@ Panel {
       }
     }
     if (dayLine < 0) {
-      if (lines.length > 0 && lines[lines.length - 1] !== "") lines.push("")
-      lines.push(heading, "", "| Time | Activity |", "|------|----------|", "")
-      lines.splice(lines.length - 1, 0, "| **" + start + "-" + end + "** | " + title + " |")
-    } else {
-      for (var j = dayLine + 1; j < lines.length; j++) {
-        if (/^###\s+/.test(lines[j])) {
-          nextHeading = j
-          break
-        }
-      }
-      lines.splice(nextHeading, 0, "| **" + start + "-" + end + "** | " + title + " |")
+      root.taskError = "No schedule found for this day"
+      return
     }
+    lines.splice(dayLine + 1, 0, "- [ ] " + title)
 
     var updatedSchedule = lines.join("\n")
     scheduleFile.setText(updatedSchedule)
-    root.loadSchedule(updatedSchedule)
+    root.topPriorities = ScheduleModel.topPriorities(updatedSchedule, root.selectedDay)
     root.cancelAddTask()
+  }
+
+  function togglePriority(index) {
+    var lines = scheduleFile.text().split(/\r?\n/)
+    var dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+    var dayLine = -1
+    var priorityIndex = 0
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].match(new RegExp("^###\\s+" + dayNames[root.selectedDay] + "\\s*:", "i"))) {
+        dayLine = i
+        break
+      }
+    }
+    if (dayLine < 0) return
+    for (var j = dayLine + 1; j < lines.length; j++) {
+      if (/^###\s+/.test(lines[j])) break
+      if (/^\s*-\s+\[[ xX]\]\s+/.test(lines[j])) {
+        if (priorityIndex === index) {
+          lines[j] = lines[j].replace(/\[([ xX])\]/, function(_, mark) {
+            return mark.toLowerCase() === "x" ? "[ ]" : "[x]"
+          })
+          break
+        }
+        priorityIndex++
+      }
+    }
+    var updatedSchedule = lines.join("\n")
+    scheduleFile.setText(updatedSchedule)
+    root.topPriorities = ScheduleModel.topPriorities(updatedSchedule, root.selectedDay)
   }
 
   function categoryColor(category) {
     if (category === "deep-work") return Color.accent
     if (category === "movement") return Color.urgent
-    if (category === "meal") return Qt.darker(contentForeground, 1.4)
-    if (category === "rest") return Qt.darker(contentForeground, 1.8)
-    return Qt.darker(contentForeground, 1.6)
+    if (category === "meal") return Qt.lighter(Color.accent, 1.25)
+    if (category === "rest") return Qt.darker(Color.accent, 1.35)
+    if (category === "learning") return Qt.lighter(contentForeground, 1.3)
+    if (category === "life") return Qt.darker(Color.urgent, 1.25)
+    if (category === "admin") return Qt.darker(Color.accent, 1.55)
+    return Qt.darker(contentForeground, 1.55)
   }
 
   function slotState(slot) {
@@ -333,7 +335,7 @@ Panel {
     active: !!root.activeSlot
     activeColor: root.activeSlot && root.activeSlot.remainingSeconds <= root.warningMinutes * 60
       ? Color.urgent
-      : Color.accent
+      : root.categoryColor(root.activeSlot ? root.activeSlot.category : "other")
     tooltipText: root.statusText
     horizontalMargin: 8.75
     verticalPadding: 8.75
@@ -428,90 +430,142 @@ Panel {
                 elide: Text.ElideRight
                 width: contentColumn.width - Style.space(24)
                 horizontalAlignment: Text.AlignHCenter
+            }
+
+            Item {
+              width: parent.width
+              visible: false
+              height: 0
+
+              Text {
+                id: progressLabel
+                anchors.left: parent.left
+                text: "DAY PROGRESS"
+                color: Qt.darker(root.contentForeground, 1.6)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 1
+              }
+
+              Text {
+                anchors.right: parent.right
+                text: Math.round(ScheduleModel.dayProgress(root.now) * 100) + "%"
+                color: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+              }
+
+              Rectangle {
+                id: progressTrack
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: progressLabel.bottom
+                anchors.topMargin: Style.space(5)
+                height: Style.space(5)
+                radius: Style.cornerRadius > 0 ? height / 2 : 0
+                color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.12)
+
+                Rectangle {
+                  width: parent.width * ScheduleModel.dayProgress(root.now)
+                  height: parent.height
+                  radius: parent.radius
+                  color: Color.accent
+                  Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                }
               }
             }
           }
+       }
 
-           Item {
-             width: parent.width
-             height: progressLabel.height + progressTrack.height + Style.space(8)
-
-            Text {
-              id: progressLabel
-              anchors.left: parent.left
-              text: "DAY PROGRESS"
-              color: Qt.darker(root.contentForeground, 1.6)
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.caption
-              font.letterSpacing: 1
-            }
-
-            Text {
-              anchors.right: parent.right
-              text: Math.round(ScheduleModel.dayProgress(root.now) * 100) + "%"
-              color: root.contentForeground
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.caption
-            }
-
-            Rectangle {
-              id: progressTrack
-              anchors.left: parent.left
-              anchors.right: parent.right
-              anchors.top: progressLabel.bottom
-              anchors.topMargin: Style.space(5)
-              height: Style.space(5)
-              radius: Style.cornerRadius > 0 ? height / 2 : 0
-              color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.12)
+            Item {
+              width: parent.width
+              height: priorityColumn.implicitHeight + Style.space(14)
 
               Rectangle {
-                width: parent.width * ScheduleModel.dayProgress(root.now)
-                height: parent.height
-                radius: parent.radius
-                color: Color.accent
-                Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                anchors.fill: parent
+                radius: Style.cornerRadius
+                color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.06)
+                border.color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.16)
+                border.width: Style.spacing.hairline
               }
-             }
-           }
 
-           Item {
-             visible: root.middayCheckpointEnabled
-             width: parent.width
-             height: checkpointColumn.implicitHeight + Style.space(14)
-
-             Rectangle {
-               anchors.fill: parent
-               radius: Style.cornerRadius
-               color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.1)
-               border.color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.28)
-               border.width: Style.spacing.hairline
-             }
-
-             Column {
-               id: checkpointColumn
-               anchors.left: parent.left
-               anchors.right: parent.right
-               anchors.verticalCenter: parent.verticalCenter
+              Column {
+                id: priorityColumn
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
                anchors.leftMargin: Style.space(12)
                anchors.rightMargin: Style.space(12)
-               spacing: Style.space(3)
+                spacing: Style.space(3)
 
-               Text {
-                 text: "MIDDAY CHECKPOINT  " + root.checkpointTimeLabel()
-                 color: Color.accent
-                 font.family: root.contentFontFamily
-                 font.pixelSize: Style.font.caption
-                 font.bold: true
-                 font.letterSpacing: 0.8
-               }
+                Text {
+                  text: "TOP PRIORITIES"
+                  color: root.contentForeground
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  font.letterSpacing: 0.8
+                }
 
-               Text {
-                 width: parent.width
-                 text: root.checkpointStatus()
-                 color: root.contentForeground
-                 font.family: root.contentFontFamily
-                 font.pixelSize: Style.font.bodySmall
-                 elide: Text.ElideRight
+                Repeater {
+                  model: root.topPriorities
+
+                  delegate: Item {
+                    required property var modelData
+                    required property int index
+                    width: priorityColumn.width
+                    height: priorityRow.implicitHeight
+
+                    Row {
+                      id: priorityRow
+                      width: parent.width
+                      spacing: Style.space(8)
+
+                      Rectangle {
+                        width: Style.space(14)
+                        height: width
+                        radius: Style.cornerRadius > 0 ? Style.space(2) : 0
+                        color: modelData.done ? Color.accent : "transparent"
+                        border.color: modelData.done ? Color.accent : Qt.darker(root.contentForeground, 1.4)
+                        border.width: Style.spacing.hairline
+
+                        Text {
+                          anchors.centerIn: parent
+                          text: "✓"
+                          visible: modelData.done
+                          color: root.contentForeground
+                          font.family: root.contentFontFamily
+                          font.pixelSize: Style.font.caption
+                          font.bold: true
+                        }
+                      }
+
+                      Text {
+                        width: parent.width - Style.space(22)
+                        text: modelData.title
+                        color: modelData.done ? Qt.darker(root.contentForeground, 1.6) : root.contentForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.bodySmall
+                        font.strikeout: modelData.done
+                        elide: Text.ElideRight
+                      }
+                    }
+
+                    MouseArea {
+                      anchors.fill: parent
+                      onClicked: root.togglePriority(index)
+                    }
+                  }
+                }
+
+                Text {
+                  visible: root.topPriorities.length === 0
+                  width: parent.width
+                  text: "No top priorities yet"
+                  color: Qt.darker(root.contentForeground, 1.6)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  elide: Text.ElideRight
                }
              }
            }
@@ -581,7 +635,9 @@ Panel {
 
                   Text {
                     text: ScheduleModel.formatMinutes(modelData.start, root.use24HourClock)
-                    color: root.slotState(modelData) === "current" ? Color.accent : Qt.darker(root.contentForeground, 1.45)
+                      color: root.slotState(modelData) === "current"
+                        ? root.categoryColor(modelData.category)
+                        : Qt.darker(root.contentForeground, 1.45)
                     font.family: root.contentFontFamily
                     font.pixelSize: Style.font.bodySmall
                     font.bold: root.slotState(modelData) === "current"
@@ -621,12 +677,13 @@ Panel {
                       height: parent.height
                       radius: parent.radius
                       color: root.activeSlot && root.activeSlot.remainingSeconds <= root.warningMinutes * 60
-                        ? Color.urgent : Color.accent
+                        ? Color.urgent : root.categoryColor(modelData.category)
                     }
                   }
                 }
               }
             }
+
           }
 
            Text {
@@ -685,11 +742,11 @@ Panel {
                opacity: 0.08
              }
 
-             Text {
-               text: "NEW TASK - " + ScheduleModel.dayName(root.selectedDay)
-               color: root.contentForeground
-               font.family: root.contentFontFamily
-               font.pixelSize: Style.font.bodySmall
+              Text {
+                text: "NEW TOP PRIORITY"
+                color: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.bodySmall
                font.bold: true
              }
 
@@ -699,59 +756,18 @@ Panel {
                placeholderText: "Task name"
                foreground: root.contentForeground
                font.family: root.contentFontFamily
-               Keys.onPressed: function(event) {
-                 if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                   taskStartField.forceActiveFocus()
-                   event.accepted = true
-                 } else if (event.key === Qt.Key_Escape) {
+                  Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                    root.saveNewTask()
+                    event.accepted = true
+                  } else if (event.key === Qt.Key_Escape) {
                    root.cancelAddTask()
                    event.accepted = true
                  }
                }
              }
 
-             Row {
-               width: parent.width
-               spacing: Style.space(8)
-
-               TextField {
-                 id: taskStartField
-                 width: (parent.width - Style.space(8)) / 2
-                 placeholderText: root.startTimePlaceholder
-                 foreground: root.contentForeground
-                 font.family: root.contentFontFamily
-                 inputMethodHints: Qt.ImhTime
-                 Keys.onPressed: function(event) {
-                   if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                     taskEndField.forceActiveFocus()
-                     event.accepted = true
-                   } else if (event.key === Qt.Key_Escape) {
-                     root.cancelAddTask()
-                     event.accepted = true
-                   }
-                 }
-               }
-
-               TextField {
-                 id: taskEndField
-                 width: (parent.width - Style.space(8)) / 2
-                 placeholderText: root.endTimePlaceholder
-                 foreground: root.contentForeground
-                 font.family: root.contentFontFamily
-                 inputMethodHints: Qt.ImhTime
-                 Keys.onPressed: function(event) {
-                   if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                     root.saveNewTask()
-                     event.accepted = true
-                   } else if (event.key === Qt.Key_Escape) {
-                     root.cancelAddTask()
-                     event.accepted = true
-                   }
-                 }
-               }
-             }
-
-             Text {
+              Text {
                visible: root.taskError !== ""
                text: root.taskError
                color: Color.urgent
@@ -770,16 +786,58 @@ Panel {
                  onClicked: root.saveNewTask()
                }
 
-               PanelActionButton {
-                 iconText: "󰅖"
-                 tooltipText: "Cancel"
-                 foreground: root.contentForeground
-                 fontFamily: root.contentFontFamily
-                 onClicked: root.cancelAddTask()
-               }
-             }
-           }
-         }
+                PanelActionButton {
+                  iconText: "󰅖"
+                  tooltipText: "Cancel"
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.cancelAddTask()
+                }
+              }
+            }
+
+            Item {
+              width: parent.width
+              height: bottomProgressLabel.height + bottomProgressTrack.height + Style.space(8)
+
+              Text {
+                id: bottomProgressLabel
+                anchors.left: parent.left
+                text: "DAY PROGRESS"
+                color: Qt.darker(root.contentForeground, 1.6)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 1
+              }
+
+              Text {
+                anchors.right: parent.right
+                text: Math.round(ScheduleModel.dayProgress(root.now) * 100) + "%"
+                color: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+              }
+
+              Rectangle {
+                id: bottomProgressTrack
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: bottomProgressLabel.bottom
+                anchors.topMargin: Style.space(5)
+                height: Style.space(5)
+                radius: Style.cornerRadius > 0 ? height / 2 : 0
+                color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.12)
+
+                Rectangle {
+                  width: parent.width * ScheduleModel.dayProgress(root.now)
+                  height: parent.height
+                  radius: parent.radius
+                  color: Color.accent
+                  Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                }
+              }
+            }
+          }
       }
     }
   }

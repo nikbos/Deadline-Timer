@@ -37,7 +37,14 @@ function parseTimeRange(value) {
   var match = text.match(/^(\d{1,2}(?::\d{2})?)\s*(AM|PM)?\s*-\s*(\d{1,2}(?::\d{2})?)\s*(AM|PM)?$/i)
   if (match) {
     var sharedSuffix = match[4] || match[2]
-    var start = parseClock(match[1], match[2] || sharedSuffix)
+    var startSuffix = match[2] || sharedSuffix
+    if (!match[2] && match[4]) {
+      var startHour = Number(match[1].split(":")[0])
+      var endHour = Number(match[3].split(":")[0])
+      if (startHour !== 12 && (startHour > endHour || endHour === 12))
+        startSuffix = match[4] === "PM" ? "AM" : "PM"
+    }
+    var start = parseClock(match[1], startSuffix)
     var end = parseClock(match[3], match[4] || sharedSuffix)
     if (start !== null && end !== null) {
       if (end <= start && (match[4] || match[2])) end += 1440
@@ -112,6 +119,25 @@ function slotsForDay(schedule, day) {
   return (schedule || []).filter(function(slot) { return slot.day === day })
 }
 
+function topPriorities(raw, day) {
+  var lines = String(raw || "").split(/\r?\n/)
+  var result = []
+  var currentDay = -1
+
+  for (var i = 0; i < lines.length; i++) {
+    var heading = lines[i].match(/^###\s+([^:]+):/)
+    if (heading) {
+      currentDay = dayIndex(clean(heading[1]))
+      continue
+    }
+    if (currentDay !== day) continue
+
+    var match = lines[i].match(/^\s*-\s+\[([ xX])\]\s+(.+?)\s*$/)
+    if (match) result.push({ title: clean(match[2]), done: match[1].toLowerCase() === "x" })
+  }
+  return result
+}
+
 function currentSlot(schedule, date) {
   var now = date || new Date()
   var minute = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60
@@ -169,6 +195,7 @@ function dayName(day) {
 if (typeof module !== "undefined") {
   module.exports = {
     parseSchedule: parseSchedule,
+    topPriorities: topPriorities,
     currentSlot: currentSlot,
     slotsForDay: slotsForDay,
     dayProgress: dayProgress,
