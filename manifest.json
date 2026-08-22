@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "deadline-timer",
   "name": "Deadline Timer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Nik",
   "license": "MIT",
   "description": "Shows the active schedule task and its remaining time",
