@@ -26,7 +26,7 @@ omarchy restart shell
 
 ## Schedule
 
-The default schedule path is `/home/nik/schedule.md`. Configure another
+The default schedule path is `~/.config/omarchy/schedule.md`. Configure another
 path through the bar widget settings. The parser reads detailed sections in
 the following format:
 
@@ -46,10 +46,12 @@ written back to the configured Markdown file.
 
 - Click the bar text to open or close the timeline.
 - `h` / `l` or left/right arrows change day.
-- `j` / `k` or up/down arrows move through the timeline.
+- `j` / `k` or up/down arrows select the previous/next event in the timeline (highlighted row).
 - `t` returns to today.
 - `r` reloads the Markdown file.
 - `n` opens the new-task form and scrolls to it.
+- `d` completes the top (first open) priority.
+- `Enter` edits the selected event (falls back to the active slot if nothing is selected).
 - `Escape` closes the popup.
 
 The popup includes a **Top Priorities** checklist for the selected day. Press
@@ -70,6 +72,14 @@ and press Enter or click Save. Escape cancels the form.
 New priorities are written to the selected day in the configured Markdown
 schedule. Add timed schedule entries directly as Markdown table rows. Displayed
 times follow the Omarchy clock format, including 12-hour and 24-hour formats.
+
+### Editing Timeline Slots
+
+Click a timeline row (or select it with `j`/`k` and press `Enter`) to edit its title and start/end times in the
+popup form; Enter saves, Escape cancels; invalid times show an inline error;
+blank end infers the next slot's start (or +30 minutes); a row's formatting
+(bold, en-dash, 12h vs 24h) is preserved on save; equal start/end times mean
+overnight-to-next-day.
 
 The bar shows only the active task, for example:
 

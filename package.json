@@ -1,0 +1,9 @@
+{
+  "name": "deadline-timer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Unit tests for the Deadline Timer Omarchy widget",
+  "scripts": {
+    "test": "node --test"
+  }
+}

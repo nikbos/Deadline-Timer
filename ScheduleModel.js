@@ -141,19 +141,34 @@ function topPriorities(raw, day) {
 function currentSlot(schedule, date) {
   var now = date || new Date()
   var minute = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60
-  var slots = slotsForDay(schedule, now.getDay())
-  for (var i = 0; i < slots.length; i++) {
-    if (minute >= slots[i].start && minute < slots[i].end) {
-      var remaining = Math.max(0, Math.ceil((slots[i].end - minute) * 60))
+  var today = now.getDay()
+  var candidates = slotsForDay(schedule, today)
+  var yesterday = (today + 6) % 7
+  var previous = slotsForDay(schedule, yesterday)
+  for (var p = 0; p < previous.length; p++) {
+    if (previous[p].end > 1440) {
+      candidates.push({
+        id: previous[p].id,
+        day: previous[p].day,
+        start: previous[p].start - 1440,
+        end: previous[p].end - 1440,
+        title: previous[p].title,
+        category: previous[p].category
+      })
+    }
+  }
+  for (var i = 0; i < candidates.length; i++) {
+    if (minute >= candidates[i].start && minute < candidates[i].end) {
+      var remaining = Math.max(0, Math.ceil((candidates[i].end - minute) * 60))
       return {
-        id: slots[i].id,
-        title: slots[i].title,
-        category: slots[i].category,
-        start: slots[i].start,
-        end: slots[i].end,
+        id: candidates[i].id,
+        title: candidates[i].title,
+        category: candidates[i].category,
+        start: candidates[i].start,
+        end: candidates[i].end,
         remainingSeconds: remaining,
-        durationSeconds: Math.max(1, (slots[i].end - slots[i].start) * 60),
-        progress: Math.max(0, Math.min(1, (minute - slots[i].start) / (slots[i].end - slots[i].start)))
+        durationSeconds: Math.max(1, (candidates[i].end - candidates[i].start) * 60),
+        progress: Math.max(0, Math.min(1, (minute - candidates[i].start) / (candidates[i].end - candidates[i].start)))
       }
     }
   }
@@ -192,8 +207,124 @@ function dayName(day) {
   return DAY_NAMES[index].toUpperCase()
 }
 
+function parseTime(text) {
+  var match = String(text || "").trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i)
+  if (!match) return null
+
+  var hour = Number(match[1])
+  var minute = Number(match[2] || 0)
+  if (minute > 59 || hour > 23) return null
+
+  var meridiem = String(match[3] || "").toUpperCase()
+  if (meridiem === "AM") hour = hour === 12 ? 0 : hour
+  if (meridiem === "PM") hour = hour === 12 ? 12 : hour + 12
+  return hour * 60 + minute
+}
+
+function resolveEnd(start, endText) {
+  var text = String(endText || "").trim()
+  if (!text) return start + 30
+  var end = parseTime(text)
+  if (end === null) return null
+  if (end <= start) end += 1440
+  return end
+}
+
+function updateSlot(raw, day, rowIndex, newStart, newEnd, newTitle) {
+  var lines = String(raw || "").split(/\r?\n/)
+  var currentDay = -1
+  var slots = []
+
+  for (var i = 0; i < lines.length; i++) {
+    var heading = lines[i].match(/^###\s+([^:]+):/)
+    if (heading) {
+      currentDay = dayIndex(clean(heading[1]))
+      continue
+    }
+    if (currentDay !== day || lines[i].indexOf("|") !== 0) continue
+
+    var cells = lines[i].split("|")
+    if (cells.length < 3) continue
+    var parsed = parseTimeRange(cells[1])
+    var title = clean(cells[2])
+    if (!parsed || !title || /^time$/i.test(title) || /^-+$/.test(title)) continue
+
+    var plainTime = cells[1].replace(/\*\*/g, "")
+    slots.push({
+      lineIndex: i,
+      cells: cells,
+      start: parsed.start,
+      end: parsed.end,
+      isSingle: plainTime.indexOf("-") < 0
+        && plainTime.indexOf("–") < 0
+        && plainTime.indexOf("—") < 0
+    })
+  }
+
+  if (rowIndex < 0 || rowIndex >= slots.length) return null
+
+  var slot = slots[rowIndex]
+
+  function fmt24(minutes) { return formatMinutes(minutes, true) }
+  function fmt12(minutes) { return formatMinutes(minutes, false) }
+  function fmt12ns(minutes) {
+    var normalized = ((Number(minutes) % 1440) + 1440) % 1440
+    var hour = Math.floor(normalized / 60) % 12 || 12
+    var minute = normalized % 60
+    return hour + ":" + (minute < 10 ? "0" : "") + minute
+  }
+  function meridiem(minutes) {
+    return Math.floor(((Number(minutes) % 1440) + 1440) % 1440 / 60) >= 12 ? "PM" : "AM"
+  }
+
+  var plainTime = slot.cells[1].replace(/\*\*/g, "")
+  var wasBold = slot.cells[1].indexOf("**") >= 0
+  var sepChar = "-"
+  if (plainTime.indexOf("–") >= 0) sepChar = "–"
+  else if (plainTime.indexOf("—") >= 0) sepChar = "—"
+  var meridiemMatches = plainTime.match(/(AM|PM)/gi) || []
+  var countMeridiem = meridiemMatches.length
+  var use24 = countMeridiem === 0
+  var wasExplicit = countMeridiem === 2
+  var isOvernight = newEnd > 1440
+
+  function renderRange() {
+    if (use24 && !isOvernight) return fmt24(newStart) + sepChar + fmt24(newEnd)
+    if (use24 && isOvernight) return fmt12(newStart) + " - " + fmt12(newEnd)
+    if (wasExplicit) return fmt12(newStart) + " " + sepChar + " " + fmt12(newEnd)
+    if (meridiem(newStart) === meridiem(newEnd) && !isOvernight)
+      return fmt12ns(newStart) + sepChar + fmt12ns(newEnd) + " " + meridiem(newStart)
+    return fmt12(newStart) + " " + sepChar + " " + fmt12(newEnd)
+  }
+
+  var timeText
+  if (slot.isSingle) {
+    var inferredEnd = newStart + 30
+    for (var n = rowIndex + 1; n < slots.length; n++) {
+      inferredEnd = slots[n].start
+      break
+    }
+    if (newEnd === inferredEnd) {
+      timeText = use24 ? fmt24(newStart) : fmt12(newStart)
+    } else {
+      timeText = renderRange()
+    }
+  } else {
+    timeText = renderRange()
+  }
+
+  if (wasBold) timeText = "**" + timeText + "**"
+
+  var titleText = String(newTitle || "").replace(/[|\r\n]/g, " ").trim()
+  if (slot.cells[2].indexOf("**") >= 0) titleText = "**" + titleText + "**"
+
+  lines[slot.lineIndex] = "| " + timeText + " | " + titleText + " |"
+  return lines.join("\n")
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
+    dayIndex: dayIndex,
     parseSchedule: parseSchedule,
     topPriorities: topPriorities,
     currentSlot: currentSlot,
@@ -201,6 +332,9 @@ if (typeof module !== "undefined") {
     dayProgress: dayProgress,
     formatMinutes: formatMinutes,
     formatRemaining: formatRemaining,
-    dayName: dayName
+    dayName: dayName,
+    parseTime: parseTime,
+    resolveEnd: resolveEnd,
+    updateSlot: updateSlot
   }
 }

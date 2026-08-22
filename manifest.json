@@ -21,7 +21,7 @@
         "key": "schedulePath",
         "type": "string",
         "label": "Schedule file",
-        "defaultValue": "/home/nik/schedule.md"
+        "defaultValue": "~/.config/omarchy/schedule.md"
       },
       {
         "key": "warningMinutes",

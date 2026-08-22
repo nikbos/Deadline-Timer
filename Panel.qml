@@ -21,6 +21,10 @@ Panel {
   property bool scheduleLoaded: false
   property bool addingTask: false
   property string taskError: ""
+  property bool editingTask: false
+  property var editingSlot: null
+  property string editError: ""
+  property int selectedSlotIndex: -1
 
   readonly property string home: Quickshell.env("HOME") || ""
   readonly property string configuredPath: root.scheduleSettingPath()
@@ -49,16 +53,14 @@ Panel {
   }
 
   function scheduleSettingPath() {
-    var value = String(setting("schedulePath", "/home/nik/schedule.md"))
-    if (value === "~/.config/omarchy/schedule.md" || value === "/home/schedule.md")
-      return "/home/nik/schedule.md"
-    return value
+    return String(setting("schedulePath", "~/.config/omarchy/schedule.md"))
   }
 
   function loadSchedule(raw) {
     root.schedule = ScheduleModel.parseSchedule(raw)
     root.topPriorities = ScheduleModel.topPriorities(raw, root.selectedDay)
     root.scheduleLoaded = true
+    root.selectedSlotIndex = -1
     root.tick()
   }
 
@@ -101,8 +103,12 @@ Panel {
     var inDay = false
     var updatedLines = []
     for (var i = 0; i < lines.length; i++) {
-      if (/^###\s+[^:]+:/.test(lines[i])) inDay = true
-      else if (/^#{1,2}\s+/.test(lines[i])) inDay = false
+      var dayHeading = lines[i].match(/^###\s+([^:]+):/)
+      if (dayHeading) {
+        inDay = ScheduleModel.dayIndex(dayHeading[1]) >= 0
+      } else if (/^#{1,2}\s+/.test(lines[i])) {
+        inDay = false
+      }
       if (inDay && /^\s*-\s+\[[ xX]\]\s+/.test(lines[i])) continue
       updatedLines.push(lines[i])
     }
@@ -146,17 +152,22 @@ Panel {
 
   function moveDay(delta) {
     root.selectedDay = (root.selectedDay + Number(delta) + 7) % 7
+    root.selectedSlotIndex = -1
     root.topPriorities = ScheduleModel.topPriorities(scheduleFile.text(), root.selectedDay)
   }
 
   function goToToday() {
     root.tick()
     root.selectedDay = root.now.getDay()
+    root.selectedSlotIndex = -1
     root.topPriorities = ScheduleModel.topPriorities(scheduleFile.text(), root.selectedDay)
   }
 
   function startAddTask() {
     root.taskError = ""
+    root.editingTask = false
+    root.editingSlot = null
+    root.editError = ""
     root.addingTask = true
     taskFormScrollTimer.restart()
   }
@@ -164,6 +175,11 @@ Panel {
   function revealTaskForm() {
     timelineFlickable.contentY = Math.max(0, timelineFlickable.contentHeight - timelineFlickable.height)
     taskTitleField.forceActiveFocus()
+  }
+
+  function revealEditForm() {
+    timelineFlickable.contentY = Math.max(0, timelineFlickable.contentHeight - timelineFlickable.height)
+    editTitleField.forceActiveFocus()
   }
 
   function cancelAddTask() {
@@ -175,6 +191,114 @@ Panel {
     Qt.callLater(function() {
       if (root.opened) keyCatcher.forceActiveFocus()
     })
+  }
+
+  function startEditSlot(day, rowIndex) {
+    if (root.addingTask) {
+      root.addingTask = false
+      root.taskError = ""
+      taskFormScrollTimer.stop()
+      taskTitleField.text = ""
+      taskTitleField.focus = false
+    }
+    var slots = ScheduleModel.slotsForDay(root.schedule, day)
+    if (rowIndex < 0 || rowIndex >= slots.length) return
+    var slot = slots[rowIndex]
+    root.selectedSlotIndex = rowIndex
+    root.editingSlot = { day: day, rowIndex: rowIndex }
+    editTitleField.text = slot.title
+    editStartField.text = ScheduleModel.formatMinutes(slot.start, root.use24HourClock)
+    editEndField.text = ScheduleModel.formatMinutes(slot.end, root.use24HourClock)
+    root.editError = ""
+    root.editingTask = true
+    editFormScrollTimer.restart()
+  }
+
+  function cancelEditTask() {
+    root.editingTask = false
+    root.editingSlot = null
+    root.editError = ""
+    editFormScrollTimer.stop()
+    editTitleField.text = ""
+    editStartField.text = ""
+    editEndField.text = ""
+    editTitleField.focus = false
+    Qt.callLater(function() {
+      if (root.opened) keyCatcher.forceActiveFocus()
+    })
+  }
+
+  function saveEditTask() {
+    var title = editTitleField.text.replace(/[|\r\n]/g, " ").trim()
+    if (!title) {
+      root.editError = "Enter a title"
+      return
+    }
+
+    var start = ScheduleModel.parseTime(editStartField.text)
+    if (start === null) {
+      root.editError = "Invalid start time"
+      return
+    }
+
+    var end = ScheduleModel.resolveEnd(start, editEndField.text)
+    if (end === null) {
+      root.editError = "Invalid end time"
+      return
+    }
+
+    if (end <= start) {
+      root.editError = "End must be after start"
+      return
+    }
+
+    var updated = ScheduleModel.updateSlot(scheduleFile.text(), root.editingSlot.day, root.editingSlot.rowIndex, start, end, title)
+    if (updated === null) {
+      root.editError = "Slot no longer exists"
+      return
+    }
+
+    scheduleFile.setText(updated)
+    root.loadSchedule(updated)
+    root.cancelEditTask()
+  }
+
+  function startEditActiveSlot() {
+    if (root.addingTask || root.editingTask) return
+    if (root.selectedSlotIndex >= 0 && root.selectedSlotIndex < root.selectedSlots.length) {
+      var selected = root.selectedSlots[root.selectedSlotIndex]
+      root.startEditSlot(selected.day, root.selectedSlotIndex)
+      return
+    }
+    if (!root.activeSlot) return
+    var slots = ScheduleModel.slotsForDay(root.schedule, root.activeSlot.day)
+    for (var i = 0; i < slots.length; i++) {
+      if (slots[i].id === root.activeSlot.id) {
+        root.startEditSlot(root.activeSlot.day, i)
+        return
+      }
+    }
+  }
+
+  function moveSlotSelection(delta) {
+    var count = root.selectedSlots.length
+    if (count === 0) return
+    var next = root.selectedSlotIndex < 0
+      ? (delta > 0 ? 0 : count - 1)
+      : root.selectedSlotIndex + delta
+    root.selectedSlotIndex = Math.max(0, Math.min(count - 1, next))
+    root.scrollSlotIntoView(root.selectedSlotIndex)
+  }
+
+  function scrollSlotIntoView(index) {
+    var item = slotRepeater.itemAt(index)
+    if (!item) return
+    var view = timelineFlickable
+    if (item.y < view.contentY) {
+      view.contentY = item.y
+    } else if (item.y + item.height > view.contentY + view.height) {
+      view.contentY = item.y + item.height - view.height
+    }
   }
 
   function saveNewTask() {
@@ -234,6 +358,15 @@ Panel {
     root.topPriorities = ScheduleModel.topPriorities(updatedSchedule, root.selectedDay)
   }
 
+  function completeTopPriority() {
+    for (var i = 0; i < root.topPriorities.length; i++) {
+      if (!root.topPriorities[i].done) {
+        root.togglePriority(i)
+        return
+      }
+    }
+  }
+
   function categoryColor(category) {
     if (category === "deep-work") return Color.accent
     if (category === "movement") return Color.urgent
@@ -268,9 +401,7 @@ Panel {
 
   function handleMove(dx, dy) {
     if (dx !== 0) root.moveDay(dx)
-    if (dy !== 0) timelineFlickable.contentY = Math.max(0,
-      Math.min(timelineFlickable.contentHeight - timelineFlickable.height,
-        timelineFlickable.contentY + dy * Style.space(70)))
+    if (dy !== 0) root.moveSlotSelection(dy)
   }
 
   FileView {
@@ -312,6 +443,13 @@ Panel {
     interval: 75
     repeat: false
     onTriggered: root.revealTaskForm()
+  }
+
+  Timer {
+    id: editFormScrollTimer
+    interval: 75
+    repeat: false
+    onTriggered: root.revealEditForm()
   }
 
   IpcHandler {
@@ -363,15 +501,17 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
+      blocked: root.addingTask || root.editingTask
       onMoveRequested: function(dx, dy) { root.handleMove(dx, dy) }
-      onActivateRequested: root.goToToday()
+      onActivateRequested: root.startEditActiveSlot()
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(t) {
         if (t === "t" || t === "T") root.goToToday()
-         else if (t === "r" || t === "R") root.refresh()
-         else if (t === "n" || t === "N") root.startAddTask()
-         else if (t === "[" || t === "h") root.moveDay(-1)
+        else if (t === "r" || t === "R") root.refresh()
+        else if (t === "n" || t === "N") root.startAddTask()
+        else if (t === "d" || t === "D") root.completeTopPriority()
+        else if (t === "[" || t === "h") root.moveDay(-1)
         else if (t === "]" || t === "l") root.moveDay(1)
       }
 
@@ -430,52 +570,9 @@ Panel {
                 elide: Text.ElideRight
                 width: contentColumn.width - Style.space(24)
                 horizontalAlignment: Text.AlignHCenter
-            }
-
-            Item {
-              width: parent.width
-              visible: false
-              height: 0
-
-              Text {
-                id: progressLabel
-                anchors.left: parent.left
-                text: "DAY PROGRESS"
-                color: Qt.darker(root.contentForeground, 1.6)
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.caption
-                font.letterSpacing: 1
-              }
-
-              Text {
-                anchors.right: parent.right
-                text: Math.round(ScheduleModel.dayProgress(root.now) * 100) + "%"
-                color: root.contentForeground
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.caption
-              }
-
-              Rectangle {
-                id: progressTrack
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: progressLabel.bottom
-                anchors.topMargin: Style.space(5)
-                height: Style.space(5)
-                radius: Style.cornerRadius > 0 ? height / 2 : 0
-                color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.12)
-
-                Rectangle {
-                  width: parent.width * ScheduleModel.dayProgress(root.now)
-                  height: parent.height
-                  radius: parent.radius
-                  color: Color.accent
-                  Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-                }
               }
             }
           }
-       }
 
             Item {
               width: parent.width
@@ -566,51 +663,63 @@ Panel {
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.bodySmall
                   elide: Text.ElideRight
-               }
-             }
-           }
-
-           Row {
-            width: parent.width
-            height: dayLabel.implicitHeight + Style.space(8)
-
-            PanelActionButton {
-              iconText: "󰅁"
-              tooltipText: "Previous day"
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onClicked: root.moveDay(-1)
+                }
+              }
             }
 
-            Text {
-              id: dayLabel
-              width: parent.width - Style.space(80)
-              anchors.verticalCenter: parent.verticalCenter
-              horizontalAlignment: Text.AlignHCenter
-              text: root.selectedDay === root.now.getDay() ? "TODAY" : ScheduleModel.dayName(root.selectedDay)
-              color: root.contentForeground
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.body
-              font.bold: true
-              font.letterSpacing: 1
-            }
+            Row {
+              width: parent.width
+              height: dayLabel.implicitHeight + Style.space(8)
 
-            PanelActionButton {
-              iconText: "󰅂"
-              tooltipText: "Next day"
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onClicked: root.moveDay(1)
+              PanelActionButton {
+                iconText: "󰅁"
+                tooltipText: "Previous day"
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.moveDay(-1)
+              }
+
+              Text {
+                id: dayLabel
+                width: parent.width - Style.space(80)
+                anchors.verticalCenter: parent.verticalCenter
+                horizontalAlignment: Text.AlignHCenter
+                text: root.selectedDay === root.now.getDay() ? "TODAY" : ScheduleModel.dayName(root.selectedDay)
+                color: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.body
+                font.bold: true
+                font.letterSpacing: 1
+              }
+
+              PanelActionButton {
+                iconText: "󰅂"
+                tooltipText: "Next day"
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.moveDay(1)
+              }
             }
-          }
 
           Repeater {
+            id: slotRepeater
             model: root.selectedSlots
 
             delegate: Item {
               required property var modelData
+              required property int index
               width: contentColumn.width
               height: slotRow.implicitHeight + Style.space(10)
+
+              Rectangle {
+                anchors.fill: parent
+                radius: Style.cornerRadius
+                color: index === root.selectedSlotIndex
+                  ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.06)
+                  : "transparent"
+                border.width: index === root.selectedSlotIndex ? Style.spacing.hairline : 0
+                border.color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.35)
+              }
 
               Rectangle {
                 anchors.left: parent.left
@@ -635,9 +744,9 @@ Panel {
 
                   Text {
                     text: ScheduleModel.formatMinutes(modelData.start, root.use24HourClock)
-                      color: root.slotState(modelData) === "current"
-                        ? root.categoryColor(modelData.category)
-                        : Qt.darker(root.contentForeground, 1.45)
+                    color: root.slotState(modelData) === "current"
+                      ? root.categoryColor(modelData.category)
+                      : Qt.darker(root.contentForeground, 1.45)
                     font.family: root.contentFontFamily
                     font.pixelSize: Style.font.bodySmall
                     font.bold: root.slotState(modelData) === "current"
@@ -682,109 +791,122 @@ Panel {
                   }
                 }
               }
+
+              MouseArea {
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                  root.selectedSlotIndex = index
+                  root.startEditSlot(modelData.day, index)
+                }
+              }
             }
 
           }
 
            Text {
-             visible: root.selectedSlots.length === 0
-            width: parent.width
-            text: "No schedule found for this day"
-            horizontalAlignment: Text.AlignHCenter
-            color: Qt.darker(root.contentForeground, 1.6)
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.bodySmall
-             font.italic: true
-           }
+              visible: root.selectedSlots.length === 0
+              width: parent.width
+              text: "No schedule found for this day"
+              horizontalAlignment: Text.AlignHCenter
+              color: Qt.darker(root.contentForeground, 1.6)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+              font.italic: true
+            }
 
-           Item {
-             width: parent.width
-             height: Style.space(28)
-             visible: !root.addingTask
+          Item {
+              width: parent.width
+              height: Style.space(28)
+              visible: !root.addingTask && !root.editingTask
 
-             Rectangle {
-               anchors.fill: parent
-               radius: Style.cornerRadius
-               color: newTaskButton.containsMouse
-                 ? Style.hoverFillFor(root.contentForeground, Color.accent)
-                 : "transparent"
-             }
-
-             Text {
-               anchors.centerIn: parent
-               text: "+ New task"
-               color: newTaskButton.containsMouse
-                 ? Style.hoverStateColor(root.contentForeground, Color.accent)
-                 : Qt.darker(root.contentForeground, 1.4)
-               font.family: root.contentFontFamily
-               font.pixelSize: Style.font.bodySmall
-               font.letterSpacing: 0.5
-             }
-
-             MouseArea {
-               id: newTaskButton
-               anchors.fill: parent
-               hoverEnabled: true
-               cursorShape: Qt.PointingHandCursor
-               onClicked: root.startAddTask()
-             }
-           }
-
-           Column {
-             visible: root.addingTask
-             width: parent.width
-             spacing: Style.space(8)
-
-             Rectangle {
-               width: parent.width
-               height: Style.spacing.hairline
-               color: root.contentForeground
-               opacity: 0.08
-             }
+              Rectangle {
+                anchors.fill: parent
+                radius: Style.cornerRadius
+                color: newTaskButton.containsMouse
+                  ? Style.hoverFillFor(root.contentForeground, Color.accent)
+                  : "transparent"
+              }
 
               Text {
+                anchors.centerIn: parent
+                text: "+ New task"
+                color: newTaskButton.containsMouse
+                  ? Style.hoverStateColor(root.contentForeground, Color.accent)
+                  : Qt.darker(root.contentForeground, 1.4)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.letterSpacing: 0.5
+              }
+
+              MouseArea {
+                id: newTaskButton
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.startAddTask()
+              }
+            }
+
+Column {
+              visible: root.addingTask || root.editingTask
+              width: parent.width
+              spacing: Style.space(8)
+
+              Rectangle {
+                width: parent.width
+                height: Style.spacing.hairline
+                color: root.contentForeground
+                opacity: 0.08
+              }
+
+              Text {
+                visible: root.addingTask
                 text: "NEW TOP PRIORITY"
                 color: root.contentForeground
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.bodySmall
-               font.bold: true
-             }
+                font.bold: true
+              }
 
-             TextField {
-               id: taskTitleField
-               width: parent.width
-               placeholderText: "Task name"
-               foreground: root.contentForeground
-               font.family: root.contentFontFamily
-                  Keys.onPressed: function(event) {
-                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+              TextField {
+                id: taskTitleField
+                visible: root.addingTask
+                width: parent.width
+                placeholderText: "Task name"
+                foreground: root.contentForeground
+                font.family: root.contentFontFamily
+                Keys.onPressed: function(event) {
+                  if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                     root.saveNewTask()
                     event.accepted = true
                   } else if (event.key === Qt.Key_Escape) {
-                   root.cancelAddTask()
-                   event.accepted = true
-                 }
-               }
-             }
+                    root.cancelAddTask()
+                    event.accepted = true
+                  }
+                }
+              }
 
               Text {
-               visible: root.taskError !== ""
-               text: root.taskError
-               color: Color.urgent
-               font.family: root.contentFontFamily
-               font.pixelSize: Style.font.caption
-             }
+                visible: root.addingTask && root.taskError !== ""
+                text: root.taskError
+                color: Color.urgent
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+              }
 
-             Row {
-               spacing: Style.space(8)
+              Row {
+                visible: root.addingTask
+                spacing: Style.space(8)
 
-               PanelActionButton {
-                 iconText: "󰄬"
-                 tooltipText: "Save task"
-                 foreground: root.contentForeground
-                 fontFamily: root.contentFontFamily
-                 onClicked: root.saveNewTask()
-               }
+                PanelActionButton {
+                  iconText: "󰄬"
+                  tooltipText: "Save task"
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.saveNewTask()
+                }
 
                 PanelActionButton {
                   iconText: "󰅖"
@@ -792,6 +914,106 @@ Panel {
                   foreground: root.contentForeground
                   fontFamily: root.contentFontFamily
                   onClicked: root.cancelAddTask()
+                }
+              }
+
+              Column {
+                visible: root.editingTask
+                width: parent.width
+                spacing: Style.space(8)
+
+                Text {
+                  text: "EDIT SLOT"
+                  color: root.contentForeground
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: true
+                }
+
+                TextField {
+                  id: editTitleField
+                  width: parent.width
+                  placeholderText: "Slot title"
+                  foreground: root.contentForeground
+                  font.family: root.contentFontFamily
+                  Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                      root.saveEditTask()
+                      event.accepted = true
+                    } else if (event.key === Qt.Key_Escape) {
+                      root.cancelEditTask()
+                      event.accepted = true
+                    }
+                  }
+                }
+
+                Row {
+                  width: parent.width
+                  spacing: Style.space(8)
+
+                  TextField {
+                    id: editStartField
+                    width: parent.width / 2 - Style.space(4)
+                    placeholderText: "Start, e.g. 8:00 or 8:00 AM"
+                    inputMethodHints: Qt.ImhTime
+                    foreground: root.contentForeground
+                    font.family: root.contentFontFamily
+                    Keys.onPressed: function(event) {
+                      if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                        root.saveEditTask()
+                        event.accepted = true
+                      } else if (event.key === Qt.Key_Escape) {
+                        root.cancelEditTask()
+                        event.accepted = true
+                      }
+                    }
+                  }
+
+                  TextField {
+                    id: editEndField
+                    width: parent.width / 2 - Style.space(4)
+                    placeholderText: "End (blank = 30 min)"
+                    inputMethodHints: Qt.ImhTime
+                    foreground: root.contentForeground
+                    font.family: root.contentFontFamily
+                    Keys.onPressed: function(event) {
+                      if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                        root.saveEditTask()
+                        event.accepted = true
+                      } else if (event.key === Qt.Key_Escape) {
+                        root.cancelEditTask()
+                        event.accepted = true
+                      }
+                    }
+                  }
+                }
+
+                Text {
+                  visible: root.editError !== ""
+                  text: root.editError
+                  color: Color.urgent
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                Row {
+                  spacing: Style.space(8)
+
+                  PanelActionButton {
+                    iconText: "󰄬"
+                    tooltipText: "Save slot"
+                    foreground: root.contentForeground
+                    fontFamily: root.contentFontFamily
+                    onClicked: root.saveEditTask()
+                  }
+
+                  PanelActionButton {
+                    iconText: "󰅖"
+                    tooltipText: "Cancel"
+                    foreground: root.contentForeground
+                    fontFamily: root.contentFontFamily
+                    onClicked: root.cancelEditTask()
+                  }
                 }
               }
             }
@@ -837,7 +1059,7 @@ Panel {
                 }
               }
             }
-          }
+        }
       }
     }
   }
