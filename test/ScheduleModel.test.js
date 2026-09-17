@@ -142,6 +142,18 @@ test("currentSlot reports full remaining time for a multi-day overnight span", (
   assert.strictEqual(active.remainingSeconds, 5400)
 })
 
+test("currentSlot includes the slot day for same-day and overnight spill slots", () => {
+  const slots = ScheduleModel.parseSchedule(SAMPLE_SCHEDULE)
+  const active = ScheduleModel.currentSlot(slots, monday(8, 15))
+  assert.ok(active)
+  assert.strictEqual(active.day, 1)
+  const spill = ScheduleModel.currentSlot(slots, new Date(2026, 7, 18, 0, 30))
+  assert.ok(spill)
+  assert.strictEqual(spill.title, "Overnight Focus")
+  assert.strictEqual(spill.day, 1)
+  assert.ok(ScheduleModel.slotsForDay(slots, spill.day).some((slot) => slot.id === spill.id))
+})
+
 test("formatMinutes supports 12-hour and 24-hour clocks", () => {
   assert.strictEqual(ScheduleModel.formatMinutes(480, false), "8:00 AM")
   assert.strictEqual(ScheduleModel.formatMinutes(780, false), "1:00 PM")
@@ -198,6 +210,12 @@ test("parseTime parses single clock values into minutes of day", () => {
   assert.strictEqual(ScheduleModel.parseTime("noon"), null)
 })
 
+test("parseTime rejects hours that overflow past 23 after meridiem", () => {
+  assert.strictEqual(ScheduleModel.parseTime("14:00 PM"), null)
+  assert.strictEqual(ScheduleModel.parseTime("13:00 PM"), null)
+  assert.strictEqual(ScheduleModel.parseTime("12:00 PM"), 720)
+})
+
 test("resolveEnd infers 30 minutes, rolls overnight and rejects garbage", () => {
   assert.strictEqual(ScheduleModel.resolveEnd(480, "8:30 AM"), 510)
   assert.strictEqual(ScheduleModel.resolveEnd(480, "8:30"), 510)
@@ -209,7 +227,7 @@ test("resolveEnd infers 30 minutes, rolls overnight and rejects garbage", () => 
 
 test("updateSlot rewrites a slot row and round-trips through parseSchedule", () => {
   const updated = ScheduleModel.updateSlot(SAMPLE_SCHEDULE, 1, 0, 570, 600, "Brunch")
-  assert.ok(updated.split("\n").includes("| **9:30-10:00 AM** | Brunch |"))
+  assert.ok(updated.split("\n").includes("| **09:30-10:00** | Brunch |"))
   const breakfast = ScheduleModel.parseSchedule(updated)[0]
   assert.strictEqual(breakfast.start, 570)
   assert.strictEqual(breakfast.end, 600)
@@ -222,9 +240,9 @@ test("updateSlot preserves en-dash and 24-hour formatting", () => {
   assert.ok(updated.split("\n").includes("| **15:00–15:30** | Deep Work |"))
 })
 
-test("updateSlot renders an explicit 12-hour overnight range", () => {
+test("updateSlot renders a 24-hour overnight range", () => {
   const updated = ScheduleModel.updateSlot(SAMPLE_SCHEDULE, 1, 3, 1320, 1500, "Night Shift")
-  assert.ok(updated.split("\n").includes("| **10:00 PM - 1:00 AM** | Night Shift |"))
+  assert.ok(updated.split("\n").includes("| **22:00-01:00** | Night Shift |"))
   const slots = ScheduleModel.parseSchedule(updated)
   assert.strictEqual(slots[3].start, 1320)
   assert.strictEqual(slots[3].end, 1500)
@@ -232,12 +250,12 @@ test("updateSlot renders an explicit 12-hour overnight range", () => {
 
 test("updateSlot keeps a single-time row single when the end is unchanged", () => {
   const updated = ScheduleModel.updateSlot(SAMPLE_SCHEDULE, 1, 2, 600, 1380, "Team sync")
-  assert.ok(updated.split("\n").includes("| **10:00 AM** | Team sync |"))
+  assert.ok(updated.split("\n").includes("| **10:00** | Team sync |"))
 })
 
 test("updateSlot expands a single-time row into a range when the end changes", () => {
   const updated = ScheduleModel.updateSlot(SAMPLE_SCHEDULE, 1, 2, 600, 660, "Team sync")
-  assert.ok(updated.includes("**10:00-11:00 AM**"))
+  assert.ok(updated.includes("**10:00-11:00**"))
 })
 
 test("updateSlot sanitizes pipes and newlines out of titles", () => {

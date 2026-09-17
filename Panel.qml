@@ -31,7 +31,7 @@ Panel {
   readonly property string scheduleFilePath: configuredPath.indexOf("~/") === 0
     ? home + configuredPath.slice(1)
     : configuredPath
-  property bool use24HourClock: Qt.locale().timeFormat(Locale.ShortFormat).indexOf("H") >= 0
+  property bool use24HourClock: true
   readonly property int warningMinutes: Math.max(1, Number(setting("warningMinutes", 5)) || 5)
   readonly property bool notificationsEnabled: setting("notifications", true) !== false
   readonly property bool soundEnabled: setting("sound", true) !== false
@@ -62,23 +62,6 @@ Panel {
     root.scheduleLoaded = true
     root.selectedSlotIndex = -1
     root.tick()
-  }
-
-  function loadClockFormat(raw) {
-    try {
-      var config = JSON.parse(raw)
-      var center = config.bar && config.bar.layout && config.bar.layout.center
-      if (!center) return
-      for (var i = 0; i < center.length; i++) {
-        if (center[i].id !== "omarchy.clock") continue
-        var format = String(center[i].format || center[i].verticalFormat || "")
-        if (/[Hk]/.test(format)) root.use24HourClock = true
-        else if (/[hK]/.test(format)) root.use24HourClock = false
-        return
-      }
-    } catch (error) {
-      // Keep the locale-based default when shell.json is unavailable or invalid.
-    }
   }
 
   function tick() {
@@ -131,8 +114,8 @@ Panel {
   }
 
   function close() {
-    root.setCenterHoverRevealSuppressed(false)
     root.controller.hide()
+    root.setCenterHoverRevealSuppressed(false)
   }
 
   function toggle() {
@@ -146,7 +129,9 @@ Panel {
   }
 
   function setCenterHoverRevealSuppressed(value) {
-    if (root.bar && "centerHoverRevealSuppressed" in root.bar)
+    if (root.bar && typeof root.bar.setCenterHoverRevealSuppressed === "function")
+      root.bar.setCenterHoverRevealSuppressed(value)
+    else if (root.bar && "centerHoverRevealSuppressed" in root.bar)
       root.bar.centerHoverRevealSuppressed = value
   }
 
@@ -244,11 +229,6 @@ Panel {
     var end = ScheduleModel.resolveEnd(start, editEndField.text)
     if (end === null) {
       root.editError = "Invalid end time"
-      return
-    }
-
-    if (end <= start) {
-      root.editError = "End must be after start"
       return
     }
 
@@ -415,15 +395,6 @@ Panel {
     onLoadFailed: root.loadSchedule("")
   }
 
-  FileView {
-    id: shellConfigFile
-    path: home + "/.config/omarchy/shell.json"
-    watchChanges: true
-    printErrors: false
-    onLoaded: root.loadClockFormat(text())
-    onFileChanged: reload()
-  }
-
   SystemClock {
     id: clock
     precision: SystemClock.Minutes
@@ -468,6 +439,8 @@ Panel {
     anchors.fill: parent
     bar: root.bar
     text: root.statusText
+    foreground: "white"
+    useActiveColor: false
     labelVisible: true
     hasVisualContent: true
     active: !!root.activeSlot
@@ -484,7 +457,6 @@ Panel {
 
   Component.onCompleted: Qt.callLater(function() {
     scheduleFile.reload()
-    shellConfigFile.reload()
   })
 
   KeyboardPanel {
@@ -531,141 +503,147 @@ Panel {
 
           Item {
             width: parent.width
-            height: heroColumn.implicitHeight
+            height: priorityColumn.implicitHeight + Style.space(20)
+
+            Rectangle {
+              anchors.fill: parent
+              radius: Style.cornerRadius
+              color: Style.normalFillFor(root.contentForeground, Color.accent)
+              border.color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.14)
+              border.width: Style.spacing.hairline
+            }
 
             Column {
-              id: heroColumn
-              anchors.horizontalCenter: parent.horizontalCenter
-              spacing: Style.space(3)
+              id: priorityColumn
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              anchors.leftMargin: Style.space(14)
+              anchors.rightMargin: Style.space(14)
+              spacing: Style.space(6)
 
-              Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: root.selectedIsToday && root.activeSlot ? "ACTIVE NOW" : ScheduleModel.dayName(root.selectedDay)
-                color: root.activeSlot && root.selectedIsToday ? Color.accent : Qt.darker(root.contentForeground, 1.5)
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.caption
-                font.letterSpacing: 1.5
-                font.bold: true
-              }
-
-              Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: root.selectedIsToday && root.activeSlot
-                  ? ScheduleModel.formatRemaining(root.activeSlot.remainingSeconds)
-                  : (root.selectedSlots.length > 0 ? "SCHEDULE" : "NO SCHEDULE")
-                color: root.activeSlot && root.selectedIsToday
-                  ? (root.activeSlot.remainingSeconds <= root.warningMinutes * 60 ? Color.urgent : root.contentForeground)
-                  : root.contentForeground
-                font.family: root.contentFontFamily
-                font.pixelSize: root.activeSlot && root.selectedIsToday ? Style.font.displayLarge : Style.font.title
-                font.bold: true
-              }
-
-              Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: root.selectedIsToday && root.activeSlot ? root.activeSlot.title : ""
-                color: root.contentForeground
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.body
-                elide: Text.ElideRight
-                width: contentColumn.width - Style.space(24)
-                horizontalAlignment: Text.AlignHCenter
-              }
-            }
-          }
-
-            Item {
-              width: parent.width
-              height: priorityColumn.implicitHeight + Style.space(14)
-
-              Rectangle {
-                anchors.fill: parent
-                radius: Style.cornerRadius
-                color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.06)
-                border.color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.16)
-                border.width: Style.spacing.hairline
-              }
-
-              Column {
-                id: priorityColumn
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-               anchors.leftMargin: Style.space(12)
-               anchors.rightMargin: Style.space(12)
-                spacing: Style.space(3)
+              Row {
+                width: parent.width
+                spacing: Style.space(8)
 
                 Text {
+                  id: priorityHeader
+                  textFormat: Text.PlainText
                   text: "TOP PRIORITIES"
-                  color: root.contentForeground
+                  color: Qt.darker(root.contentForeground, 1.4)
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.caption
                   font.bold: true
-                  font.letterSpacing: 0.8
+                  font.letterSpacing: 1.2
                 }
 
-                Repeater {
-                  model: root.topPriorities
-
-                  delegate: Item {
-                    required property var modelData
-                    required property int index
-                    width: priorityColumn.width
-                    height: priorityRow.implicitHeight
-
-                    Row {
-                      id: priorityRow
-                      width: parent.width
-                      spacing: Style.space(8)
-
-                      Rectangle {
-                        width: Style.space(14)
-                        height: width
-                        radius: Style.cornerRadius > 0 ? Style.space(2) : 0
-                        color: modelData.done ? Color.accent : "transparent"
-                        border.color: modelData.done ? Color.accent : Qt.darker(root.contentForeground, 1.4)
-                        border.width: Style.spacing.hairline
-
-                        Text {
-                          anchors.centerIn: parent
-                          text: "✓"
-                          visible: modelData.done
-                          color: root.contentForeground
-                          font.family: root.contentFontFamily
-                          font.pixelSize: Style.font.caption
-                          font.bold: true
-                        }
-                      }
-
-                      Text {
-                        width: parent.width - Style.space(22)
-                        text: modelData.title
-                        color: modelData.done ? Qt.darker(root.contentForeground, 1.6) : root.contentForeground
-                        font.family: root.contentFontFamily
-                        font.pixelSize: Style.font.bodySmall
-                        font.strikeout: modelData.done
-                        elide: Text.ElideRight
-                      }
-                    }
-
-                    MouseArea {
-                      anchors.fill: parent
-                      onClicked: root.togglePriority(index)
-                    }
-                  }
+                Item {
+                  width: Math.max(0, parent.width - priorityHeader.implicitWidth - priorityCount.implicitWidth - Style.space(8))
+                  height: 1
                 }
 
                 Text {
-                  visible: root.topPriorities.length === 0
-                  width: parent.width
-                  text: "No top priorities yet"
-                  color: Qt.darker(root.contentForeground, 1.6)
+                  id: priorityCount
+                  textFormat: Text.PlainText
+                  text: {
+                    var total = root.topPriorities.length
+                    if (total === 0) return ""
+                    var left = 0
+                    for (var i = 0; i < total; i++) if (!root.topPriorities[i].done) left++
+                    return left === 0 ? "ALL DONE" : left + " LEFT"
+                  }
+                  color: {
+                    var total = root.topPriorities.length
+                    var left = 0
+                    for (var i = 0; i < total; i++) if (!root.topPriorities[i].done) left++
+                    return total > 0 && left === 0 ? Color.accent : Qt.darker(root.contentForeground, 1.5)
+                  }
                   font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.bodySmall
-                  elide: Text.ElideRight
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  font.letterSpacing: 1.2
                 }
               }
+
+              Repeater {
+                model: root.topPriorities
+
+                delegate: Item {
+                  required property var modelData
+                  required property int index
+                  width: priorityColumn.width
+                  height: Math.max(priorityRow.height + Style.space(6), Style.space(28))
+
+                  Rectangle {
+                    anchors.fill: parent
+                    radius: Style.cornerRadius > 0 ? Style.space(6) : 0
+                    color: priorityMouse.containsMouse
+                      ? Style.hoverFillFor(root.contentForeground, Color.accent)
+                      : "transparent"
+                  }
+
+                  Row {
+                    id: priorityRow
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Style.space(10)
+
+                    Rectangle {
+                      anchors.verticalCenter: parent.verticalCenter
+                      width: Style.space(18)
+                      height: width
+                      radius: Style.cornerRadius > 0 ? Style.space(5) : 0
+                      color: modelData.done ? Color.accent : "transparent"
+                      border.color: modelData.done ? Color.accent : Qt.darker(root.contentForeground, 1.4)
+                      border.width: Style.spacing.hairline
+
+                      Text {
+                        anchors.centerIn: parent
+                        text: "✓"
+                        visible: modelData.done
+                        color: Color.background
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.body
+                        font.bold: true
+                      }
+                    }
+
+                    Text {
+                      anchors.verticalCenter: parent.verticalCenter
+                      width: parent.width - Style.space(28)
+                      textFormat: Text.PlainText
+                      text: modelData.title
+                      color: modelData.done ? Qt.darker(root.contentForeground, 1.6) : root.contentForeground
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.heading
+                      font.strikeout: modelData.done
+                      elide: Text.ElideRight
+                    }
+                  }
+
+                  MouseArea {
+                    id: priorityMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.togglePriority(index)
+                  }
+                }
+              }
+
+              Text {
+                visible: root.topPriorities.length === 0
+                width: parent.width
+                textFormat: Text.PlainText
+                text: "No top priorities yet"
+                color: Qt.darker(root.contentForeground, 1.6)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.subtitle
+                elide: Text.ElideRight
+              }
             }
+          }
 
             Row {
               width: parent.width
@@ -687,7 +665,7 @@ Panel {
                 text: root.selectedDay === root.now.getDay() ? "TODAY" : ScheduleModel.dayName(root.selectedDay)
                 color: root.contentForeground
                 font.family: root.contentFontFamily
-                font.pixelSize: Style.font.body
+                font.pixelSize: Style.font.title
                 font.bold: true
                 font.letterSpacing: 1
               }
@@ -708,74 +686,120 @@ Panel {
             delegate: Item {
               required property var modelData
               required property int index
+              readonly property bool isCurrent: root.slotState(modelData) === "current"
+              readonly property bool isPast: root.slotState(modelData) === "past"
+              readonly property bool isSelected: index === root.selectedSlotIndex
+              readonly property color accent: root.categoryColor(modelData.category)
               width: contentColumn.width
-              height: slotRow.implicitHeight + Style.space(10)
+              height: slotRow.implicitHeight + Style.space(12)
 
               Rectangle {
                 anchors.fill: parent
                 radius: Style.cornerRadius
-                color: index === root.selectedSlotIndex
-                  ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.06)
-                  : "transparent"
-                border.width: index === root.selectedSlotIndex ? Style.spacing.hairline : 0
-                border.color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.35)
+                color: isSelected
+                  ? Style.selectedFillFor(root.contentForeground, Color.accent)
+                  : (slotMouse.containsMouse ? Style.hoverFillFor(root.contentForeground, Color.accent) : "transparent")
+                border.width: isSelected ? Style.spacing.hairline : 0
+                border.color: Style.selectedBorderFor(root.contentForeground, Color.accent)
               }
 
               Rectangle {
                 anchors.left: parent.left
+                anchors.leftMargin: Style.space(8)
                 anchors.top: parent.top
+                anchors.topMargin: Style.space(8)
                 anchors.bottom: parent.bottom
-                width: Style.space(4)
+                anchors.bottomMargin: Style.space(8)
+                width: Style.space(3)
                 radius: Style.space(2)
-                color: root.categoryColor(modelData.category)
-                opacity: root.slotState(modelData) === "past" ? 0.35 : 1
+                color: accent
+                opacity: isPast ? 0.35 : 1
               }
 
               Row {
                 id: slotRow
                 anchors.left: parent.left
-                anchors.leftMargin: Style.space(14)
+                anchors.leftMargin: Style.space(20)
                 anchors.right: parent.right
+                anchors.rightMargin: Style.space(12)
+                anchors.verticalCenter: parent.verticalCenter
                 spacing: Style.space(12)
 
                 Column {
-                  width: Style.space(100)
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: Style.space(72)
                   spacing: Style.space(2)
 
                   Text {
+                    width: parent.width
+                    horizontalAlignment: Text.AlignRight
+                    textFormat: Text.PlainText
                     text: ScheduleModel.formatMinutes(modelData.start, root.use24HourClock)
-                    color: root.slotState(modelData) === "current"
-                      ? root.categoryColor(modelData.category)
-                      : Qt.darker(root.contentForeground, 1.45)
+                    color: isCurrent ? accent : Qt.darker(root.contentForeground, 1.45)
                     font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    font.bold: root.slotState(modelData) === "current"
+                    font.pixelSize: Style.font.subtitle
+                    font.bold: isCurrent
                   }
 
                   Text {
+                    width: parent.width
+                    horizontalAlignment: Text.AlignRight
+                    textFormat: Text.PlainText
                     text: ScheduleModel.formatMinutes(modelData.end, root.use24HourClock)
                     color: Qt.darker(root.contentForeground, 1.8)
                     font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.caption
+                    font.pixelSize: Style.font.body
                   }
                 }
 
                 Column {
-                  width: parent.width - Style.space(112)
-                  spacing: Style.space(4)
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: parent.width - Style.space(84)
+                  spacing: Style.space(5)
 
-                  Text {
-                    text: modelData.title
+                  Row {
                     width: parent.width
-                    color: root.slotState(modelData) === "past" ? Qt.darker(root.contentForeground, 1.7) : root.contentForeground
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.body
-                    font.bold: root.slotState(modelData) === "current"
-                    elide: Text.ElideRight
+                    spacing: Style.space(8)
+
+                    Text {
+                      id: slotTitle
+                      width: Math.max(0, Math.min(implicitWidth, parent.width - (nowPill.visible ? nowPill.width + parent.spacing : 0)))
+                      textFormat: Text.PlainText
+                      text: modelData.title
+                      color: isPast ? Qt.darker(root.contentForeground, 1.7) : root.contentForeground
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.title
+                      font.bold: isCurrent
+                      elide: Text.ElideRight
+                    }
+
+                    Rectangle {
+                      id: nowPill
+                      visible: isCurrent
+                      anchors.verticalCenter: parent.verticalCenter
+                      implicitWidth: nowPillText.implicitWidth + Style.space(12)
+                      implicitHeight: nowPillText.implicitHeight + Style.space(5)
+                      radius: height / 2
+                      color: "transparent"
+                      border.width: Style.spacing.hairline
+                      border.color: accent
+
+                      Text {
+                        id: nowPillText
+                        anchors.centerIn: parent
+                        textFormat: Text.PlainText
+                        text: "NOW"
+                        color: accent
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                        font.letterSpacing: 1
+                      }
+                    }
                   }
 
                   Rectangle {
-                    visible: root.slotState(modelData) === "current"
+                    visible: isCurrent
                     width: parent.width
                     height: Style.space(4)
                     radius: Style.cornerRadius > 0 ? height / 2 : 0
@@ -786,13 +810,14 @@ Panel {
                       height: parent.height
                       radius: parent.radius
                       color: root.activeSlot && root.activeSlot.remainingSeconds <= root.warningMinutes * 60
-                        ? Color.urgent : root.categoryColor(modelData.category)
+                        ? Color.urgent : accent
                     }
                   }
                 }
               }
 
               MouseArea {
+                id: slotMouse
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
@@ -805,61 +830,61 @@ Panel {
 
           }
 
-           Text {
-              visible: root.selectedSlots.length === 0
-              width: parent.width
-              text: "No schedule found for this day"
-              horizontalAlignment: Text.AlignHCenter
-              color: Qt.darker(root.contentForeground, 1.6)
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodySmall
-              font.italic: true
-            }
+          Text {
+            visible: root.selectedSlots.length === 0
+            width: parent.width
+            textFormat: Text.PlainText
+            text: "No schedule found for this day"
+            horizontalAlignment: Text.AlignHCenter
+            color: Qt.darker(root.contentForeground, 1.6)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.body
+            font.italic: true
+          }
 
           Item {
-              width: parent.width
-              height: Style.space(28)
-              visible: !root.addingTask && !root.editingTask
+            width: parent.width
+            height: Style.space(32)
+            visible: !root.addingTask && !root.editingTask
 
-              Rectangle {
-                anchors.fill: parent
-                radius: Style.cornerRadius
-                color: newTaskButton.containsMouse
-                  ? Style.hoverFillFor(root.contentForeground, Color.accent)
-                  : "transparent"
-              }
-
-              Text {
-                anchors.centerIn: parent
-                text: "+ New task"
-                color: newTaskButton.containsMouse
-                  ? Style.hoverStateColor(root.contentForeground, Color.accent)
-                  : Qt.darker(root.contentForeground, 1.4)
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.bodySmall
-                font.letterSpacing: 0.5
-              }
-
-              MouseArea {
-                id: newTaskButton
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: root.startAddTask()
-              }
+            Rectangle {
+              anchors.fill: parent
+              radius: Style.cornerRadius
+              color: newTaskButton.containsMouse
+                ? Style.hoverFillFor(root.contentForeground, Color.accent)
+                : "transparent"
             }
 
-Column {
-              visible: root.addingTask || root.editingTask
-              width: parent.width
-              spacing: Style.space(8)
+            Text {
+              anchors.centerIn: parent
+              textFormat: Text.PlainText
+              text: "+ New task"
+              color: newTaskButton.containsMouse
+                ? Style.hoverStateColor(root.contentForeground, Color.accent)
+                : Qt.darker(root.contentForeground, 1.4)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.body
+              font.letterSpacing: 0.5
+            }
 
-              Rectangle {
-                width: parent.width
-                height: Style.spacing.hairline
-                color: root.contentForeground
-                opacity: 0.08
-              }
+            MouseArea {
+              id: newTaskButton
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.startAddTask()
+            }
+          }
+
+          Column {
+            visible: root.addingTask || root.editingTask
+            width: parent.width
+            spacing: Style.space(8)
+
+            PanelSeparator {
+              foreground: root.contentForeground
+              strength: 0.08
+            }
 
               Text {
                 visible: root.addingTask
@@ -954,7 +979,7 @@ Column {
                   TextField {
                     id: editStartField
                     width: parent.width / 2 - Style.space(4)
-                    placeholderText: "Start, e.g. 8:00 or 8:00 AM"
+                    placeholderText: "Start, e.g. 08:00"
                     inputMethodHints: Qt.ImhTime
                     foreground: root.contentForeground
                     font.family: root.contentFontFamily
@@ -1016,6 +1041,10 @@ Column {
                   }
                 }
               }
+            }
+
+            PanelSeparator {
+              foreground: root.contentForeground
             }
 
             Item {

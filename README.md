@@ -70,16 +70,17 @@ With the widget open, press `n` or click **+ New task**. Enter a priority name
 and press Enter or click Save. Escape cancels the form.
 
 New priorities are written to the selected day in the configured Markdown
-schedule. Add timed schedule entries directly as Markdown table rows. Displayed
-times follow the Omarchy clock format, including 12-hour and 24-hour formats.
+schedule. Add timed schedule entries directly as Markdown table rows. Times are
+always displayed and written back in 24-hour format; the parser still accepts
+12-hour (AM/PM) entries in the Markdown file.
 
 ### Editing Timeline Slots
 
 Click a timeline row (or select it with `j`/`k` and press `Enter`) to edit its title and start/end times in the
 popup form; Enter saves, Escape cancels; invalid times show an inline error;
 blank end infers the next slot's start (or +30 minutes); a row's formatting
-(bold, en-dash, 12h vs 24h) is preserved on save; equal start/end times mean
-overnight-to-next-day.
+(bold, en-dash separators) is preserved on save while times are normalized to
+24-hour format; equal start/end times mean overnight-to-next-day.
 
 The bar shows only the active task, for example:
 

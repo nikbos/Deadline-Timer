@@ -47,7 +47,7 @@ function parseTimeRange(value) {
     var start = parseClock(match[1], startSuffix)
     var end = parseClock(match[3], match[4] || sharedSuffix)
     if (start !== null && end !== null) {
-      if (end <= start && (match[4] || match[2])) end += 1440
+      if (end < start || (end <= start && (match[4] || match[2]))) end += 1440
       return { start: start, end: end }
     }
   }
@@ -162,6 +162,7 @@ function currentSlot(schedule, date) {
       var remaining = Math.max(0, Math.ceil((candidates[i].end - minute) * 60))
       return {
         id: candidates[i].id,
+        day: candidates[i].day,
         title: candidates[i].title,
         category: candidates[i].category,
         start: candidates[i].start,
@@ -185,7 +186,7 @@ function formatMinutes(minutes, use24HourClock) {
   var normalized = ((Number(minutes) % 1440) + 1440) % 1440
   var hour = Math.floor(normalized / 60)
   var minute = normalized % 60
-  if (use24HourClock) {
+  if (use24HourClock !== false) {
     return (hour < 10 ? "0" : "") + hour + ":" + (minute < 10 ? "0" : "") + minute
   }
   var suffix = hour >= 12 ? "PM" : "AM"
@@ -218,6 +219,7 @@ function parseTime(text) {
   var meridiem = String(match[3] || "").toUpperCase()
   if (meridiem === "AM") hour = hour === 12 ? 0 : hour
   if (meridiem === "PM") hour = hour === 12 ? 12 : hour + 12
+  if (hour > 23) return null
   return hour * 60 + minute
 }
 
@@ -266,35 +268,15 @@ function updateSlot(raw, day, rowIndex, newStart, newEnd, newTitle) {
   var slot = slots[rowIndex]
 
   function fmt24(minutes) { return formatMinutes(minutes, true) }
-  function fmt12(minutes) { return formatMinutes(minutes, false) }
-  function fmt12ns(minutes) {
-    var normalized = ((Number(minutes) % 1440) + 1440) % 1440
-    var hour = Math.floor(normalized / 60) % 12 || 12
-    var minute = normalized % 60
-    return hour + ":" + (minute < 10 ? "0" : "") + minute
-  }
-  function meridiem(minutes) {
-    return Math.floor(((Number(minutes) % 1440) + 1440) % 1440 / 60) >= 12 ? "PM" : "AM"
-  }
 
   var plainTime = slot.cells[1].replace(/\*\*/g, "")
   var wasBold = slot.cells[1].indexOf("**") >= 0
   var sepChar = "-"
   if (plainTime.indexOf("–") >= 0) sepChar = "–"
   else if (plainTime.indexOf("—") >= 0) sepChar = "—"
-  var meridiemMatches = plainTime.match(/(AM|PM)/gi) || []
-  var countMeridiem = meridiemMatches.length
-  var use24 = countMeridiem === 0
-  var wasExplicit = countMeridiem === 2
-  var isOvernight = newEnd > 1440
 
   function renderRange() {
-    if (use24 && !isOvernight) return fmt24(newStart) + sepChar + fmt24(newEnd)
-    if (use24 && isOvernight) return fmt12(newStart) + " - " + fmt12(newEnd)
-    if (wasExplicit) return fmt12(newStart) + " " + sepChar + " " + fmt12(newEnd)
-    if (meridiem(newStart) === meridiem(newEnd) && !isOvernight)
-      return fmt12ns(newStart) + sepChar + fmt12ns(newEnd) + " " + meridiem(newStart)
-    return fmt12(newStart) + " " + sepChar + " " + fmt12(newEnd)
+    return fmt24(newStart) + sepChar + fmt24(newEnd)
   }
 
   var timeText
@@ -305,7 +287,7 @@ function updateSlot(raw, day, rowIndex, newStart, newEnd, newTitle) {
       break
     }
     if (newEnd === inferredEnd) {
-      timeText = use24 ? fmt24(newStart) : fmt12(newStart)
+      timeText = fmt24(newStart)
     } else {
       timeText = renderRange()
     }
