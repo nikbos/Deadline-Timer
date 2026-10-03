@@ -24,6 +24,9 @@ omarchy plugin enable deadline-timer
 omarchy restart shell
 ```
 
+Copying files into the plugin directory does not hot-reload this widget; run
+`omarchy restart shell` after every change while developing.
+
 ## Schedule
 
 The default schedule path is `~/.config/omarchy/schedule.md`. Configure another

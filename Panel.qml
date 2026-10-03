@@ -43,6 +43,7 @@ Panel {
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property real panelWidth: Style.space(560)
+  readonly property real slotListInset: priorityBlock.height + dayHeader.height + Style.space(12) * 2
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -274,8 +275,9 @@ Panel {
     var item = slotRepeater.itemAt(index)
     if (!item) return
     var view = timelineFlickable
-    if (item.y < view.contentY) {
-      view.contentY = item.y
+    var inset = Math.min(root.slotListInset, Math.max(0, view.height - item.height))
+    if (item.y - inset < view.contentY) {
+      view.contentY = Math.max(0, item.y - inset)
     } else if (item.y + item.height > view.contentY + view.height) {
       view.contentY = item.y + item.height - view.height
     }
@@ -502,6 +504,7 @@ Panel {
           spacing: Style.space(12)
 
           Item {
+            id: priorityBlock
             width: parent.width
             height: priorityColumn.implicitHeight + Style.space(20)
 
@@ -646,6 +649,7 @@ Panel {
           }
 
             Row {
+              id: dayHeader
               width: parent.width
               height: dayLabel.implicitHeight + Style.space(8)
 
