@@ -81,7 +81,7 @@ always displayed and written back in 24-hour format; the parser still accepts
 
 Click a timeline row (or select it with `j`/`k` and press `Enter`) to edit its title and start/end times in the
 popup form; Enter saves, Escape cancels; invalid times show an inline error;
-blank end infers the next slot's start (or +30 minutes); a row's formatting
+blank end defaults to 30 minutes after the start; a row's formatting
 (bold, en-dash separators) is preserved on save while times are normalized to
 24-hour format; equal start/end times mean overnight-to-next-day.
 

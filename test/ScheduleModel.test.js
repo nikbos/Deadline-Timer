@@ -278,3 +278,54 @@ test("updateSlot leaves other days unchanged", () => {
   assert.ok(lines.includes("| **7:15-8:00 AM** | Deep Work #2 |"))
   assert.ok(lines.includes("| **6:30-7:30 PM** | Cardio |"))
 })
+
+test("parseSchedule and topPriorities ignore content under non-day headings", () => {
+  const raw = [
+    "### Monday:",
+    "- [ ] real task",
+    "",
+    "## Weekly Goals",
+    "- [ ] not a monday task",
+    "",
+    "| Time | Activity |",
+    "|------|----------|",
+    "| **20:00-21:00** | Notes table row |",
+    "",
+    "### Tuesday:",
+    "- [ ] tuesday task"
+  ].join("\n")
+  const slots = ScheduleModel.parseSchedule(raw)
+  assert.strictEqual(slots.filter((slot) => slot.day === 1).length, 0)
+  assert.strictEqual(slots.filter((slot) => slot.day === 2).length, 0)
+  assert.deepStrictEqual(ScheduleModel.topPriorities(raw, 1), [{ title: "real task", done: false }])
+  assert.deepStrictEqual(ScheduleModel.topPriorities(raw, 2), [{ title: "tuesday task", done: false }])
+})
+
+test("updateSlot ignores table rows under non-day headings", () => {
+  const raw = [
+    "### Monday:",
+    "| Time | Activity |",
+    "|------|----------|",
+    "| **09:00-10:00** | Real Monday |",
+    "",
+    "## Notes",
+    "| Time | Activity |",
+    "|------|----------|",
+    "| **20:00-21:00** | Notes row |"
+  ].join("\n")
+  assert.strictEqual(ScheduleModel.updateSlot(raw, 1, 1, 600, 660, "Hijacked"), null)
+  const updated = ScheduleModel.updateSlot(raw, 1, 0, 600, 660, "Ok")
+  assert.ok(updated.includes("| **10:00-11:00** | Ok |"))
+  assert.ok(updated.includes("| **20:00-21:00** | Notes row |"))
+})
+
+test("equal start and end times round-trip as an overnight slot", () => {
+  const raw = "### Monday:\n\n| Time | Activity |\n|------|----------|\n| **09:00-10:00** | Task |\n"
+  const start = ScheduleModel.parseTime("09:00")
+  const end = ScheduleModel.resolveEnd(start, "09:00")
+  const updated = ScheduleModel.updateSlot(raw, 1, 0, start, end, "Task")
+  assert.ok(updated.includes("| **09:00-09:00** | Task |"))
+  const slot = ScheduleModel.parseSchedule(updated)[0]
+  assert.strictEqual(slot.start, 540)
+  assert.strictEqual(slot.end, 1980)
+})

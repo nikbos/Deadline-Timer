@@ -47,7 +47,7 @@ function parseTimeRange(value) {
     var start = parseClock(match[1], startSuffix)
     var end = parseClock(match[3], match[4] || sharedSuffix)
     if (start !== null && end !== null) {
-      if (end < start || (end <= start && (match[4] || match[2]))) end += 1440
+      if (end <= start) end += 1440
       return { start: start, end: end }
     }
   }
@@ -80,6 +80,10 @@ function parseSchedule(raw) {
     var heading = lines[i].match(/^###\s+([^:]+):/)
     if (heading) {
       currentDay = dayIndex(clean(heading[1]))
+      continue
+    }
+    if (/^#{1,6}\s+/.test(lines[i])) {
+      currentDay = -1
       continue
     }
     if (currentDay < 0 || lines[i].indexOf("|") !== 0) continue
@@ -128,6 +132,10 @@ function topPriorities(raw, day) {
     var heading = lines[i].match(/^###\s+([^:]+):/)
     if (heading) {
       currentDay = dayIndex(clean(heading[1]))
+      continue
+    }
+    if (/^#{1,6}\s+/.test(lines[i])) {
+      currentDay = -1
       continue
     }
     if (currentDay !== day) continue
@@ -241,6 +249,10 @@ function updateSlot(raw, day, rowIndex, newStart, newEnd, newTitle) {
     var heading = lines[i].match(/^###\s+([^:]+):/)
     if (heading) {
       currentDay = dayIndex(clean(heading[1]))
+      continue
+    }
+    if (/^#{1,6}\s+/.test(lines[i])) {
+      currentDay = -1
       continue
     }
     if (currentDay !== day || lines[i].indexOf("|") !== 0) continue

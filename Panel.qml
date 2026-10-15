@@ -291,10 +291,10 @@ Panel {
     }
 
     var lines = scheduleFile.text().split(/\r?\n/)
-    var dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
     var dayLine = -1
     for (var i = 0; i < lines.length; i++) {
-      if (lines[i].match(new RegExp("^###\\s+" + dayNames[root.selectedDay] + "\\s*:", "i"))) {
+      var heading = lines[i].match(/^###\s+([^:]+):/)
+      if (heading && ScheduleModel.dayIndex(heading[1]) === root.selectedDay) {
         dayLine = i
         break
       }
@@ -313,18 +313,18 @@ Panel {
 
   function togglePriority(index) {
     var lines = scheduleFile.text().split(/\r?\n/)
-    var dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
     var dayLine = -1
     var priorityIndex = 0
     for (var i = 0; i < lines.length; i++) {
-      if (lines[i].match(new RegExp("^###\\s+" + dayNames[root.selectedDay] + "\\s*:", "i"))) {
+      var heading = lines[i].match(/^###\s+([^:]+):/)
+      if (heading && ScheduleModel.dayIndex(heading[1]) === root.selectedDay) {
         dayLine = i
         break
       }
     }
     if (dayLine < 0) return
     for (var j = dayLine + 1; j < lines.length; j++) {
-      if (/^###\s+/.test(lines[j])) break
+      if (/^#{1,6}\s+/.test(lines[j])) break
       if (/^\s*-\s+\[[ xX]\]\s+/.test(lines[j])) {
         if (priorityIndex === index) {
           lines[j] = lines[j].replace(/\[([ xX])\]/, function(_, mark) {
